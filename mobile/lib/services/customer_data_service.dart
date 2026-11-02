@@ -13,7 +13,7 @@ class CustomerDataService {
   SupabaseClient get _supabase => _client ?? Supabase.instance.client;
 
   static const _customerSelect =
-      'id, user_id, address, active, created_at, updated_at, users!fk_customers_user!inner(name, phone, email, role)';
+      'id, user_id, address, active, created_at, updated_at, users!fk_customers_user!inner(name, phone, email, role, auth_user_id)';
 
   /// Lists customers.
   ///
@@ -99,7 +99,7 @@ class CustomerDataService {
     });
   }
 
-  Future<String> customerEmail(int customerId) {
+  Future<String?> customerEmail(int customerId) {
     return _guard(() async {
       final row = await _supabase
           .from('customers')
@@ -113,10 +113,7 @@ class CustomerDataService {
 
       final user = row['users'];
       final email = user is Map ? user['email'] : null;
-      if (email is! String || email.isEmpty) {
-        throw ApiException(404, 'Customer not found');
-      }
-      return email;
+      return email is String ? email : null;
     });
   }
 
@@ -129,7 +126,7 @@ class CustomerDataService {
       final trimmedName = name.trim();
       final trimmedPhone = phone.trim();
       if (trimmedName.isEmpty || trimmedPhone.isEmpty) {
-        throw ApiException(400, 'Name, phone, email, and address are required.');
+        throw ApiException(400, 'Name and phone are required.');
       }
       if (trimmedName.length > 255 || trimmedPhone.length > 20) {
         throw ApiException(400, 'Name or phone is too long.');
@@ -161,16 +158,17 @@ class CustomerDataService {
 
   Future<Customer> updateAddress({
     required int id,
-    required String address,
+    required String? address,
   }) {
     return _guard(() async {
-      if (address.trim().isEmpty) {
-        throw ApiException(400, 'Name, phone, email, and address are required.');
-      }
+      final trimmedAddress = address?.trim();
+      final storedAddress = trimmedAddress == null || trimmedAddress.isEmpty
+          ? null
+          : trimmedAddress;
 
       final row = await _supabase
           .from('customers')
-          .update({'address': address})
+          .update({'address': storedAddress})
           .eq('id', id)
           .select(_customerSelect)
           .maybeSingle();
@@ -216,6 +214,7 @@ class CustomerDataService {
       'email': profile['email'],
       'role': profile['role'],
       'address': row['address'],
+      'auth_user_id': profile['auth_user_id'],
       'active': row['active'] == true,
       'created_at': _asString(row['created_at']),
       'updated_at': _asString(row['updated_at']),

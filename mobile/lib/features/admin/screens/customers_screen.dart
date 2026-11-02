@@ -15,9 +15,17 @@ import '../../../widgets/loading_view.dart';
 import '../../../widgets/search_field.dart';
 
 class CustomersScreen extends StatefulWidget {
-  const CustomersScreen({super.key, required this.adminService});
+  const CustomersScreen({
+    super.key,
+    required this.adminService,
+    /// When supplied the edit form for this customer is opened immediately
+    /// after the list has loaded, letting the search dashboard tap straight
+    /// through to a specific customer without re-querying.
+    this.initialCustomer,
+  });
 
   final AdminService adminService;
+  final Customer? initialCustomer;
 
   @override
   State<CustomersScreen> createState() => _CustomersScreenState();
@@ -36,7 +44,12 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) {
+      final initial = widget.initialCustomer;
+      if (initial != null && mounted) {
+        _openForm(customer: initial);
+      }
+    });
   }
 
   @override
@@ -182,7 +195,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                         ],
                                       ),
                                       subtitle: Text(
-                                        '${customer.phone}\n${customer.email}\n${customer.address}',
+                                        '${customer.phone}\n${customer.email ?? ''}\n${customer.address ?? ''}',
                                       ),
                                       isThreeLine: true,
                                       trailing: balance == null
@@ -247,7 +260,6 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
   final _addressController = TextEditingController();
   bool _loading = false;
   bool _archiving = false;
@@ -265,8 +277,8 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
     if (customer == null) return;
     _nameController.text = customer.name;
     _phoneController.text = customer.phone;
-    _emailController.text = customer.email;
-    _addressController.text = customer.address;
+    _emailController.text = customer.email ?? '';
+    _addressController.text = customer.address ?? '';
     _balanceLoading = true;
     _loadBalance();
   }
@@ -297,7 +309,6 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
-    _passwordController.dispose();
     _addressController.dispose();
     super.dispose();
   }
@@ -367,20 +378,21 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
   Future<void> _submit() async {
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    final address = _addressController.text.trim();
+    final emailText = _emailController.text.trim();
+    final email = emailText.isEmpty ? null : emailText;
+    final addressText = _addressController.text.trim();
+    final address = addressText.isEmpty ? null : addressText;
 
-    if (name.isEmpty || phone.isEmpty || email.isEmpty || address.isEmpty) {
-      setState(() => _error = 'Name, phone, email, and address are required.');
+    if (name.isEmpty || phone.isEmpty) {
+      setState(() => _error = 'Name and phone are required.');
       return;
     }
-    if (!email.contains('@')) {
+    if (email != null && !email.contains('@')) {
       setState(() => _error = 'Enter a valid email.');
       return;
     }
-    if (!_editing && password.length < 6) {
-      setState(() => _error = 'Password must be at least 6 characters.');
+    if (_editing && widget.customer!.authUserId != null && email == null) {
+      setState(() => _error = 'Enter a valid email.');
       return;
     }
 
@@ -396,7 +408,6 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
           name: name,
           phone: phone,
           email: email,
-          password: password,
           address: address,
         );
       } else {
@@ -480,19 +491,11 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
             const SizedBox(height: 16),
             AppTextField(
               controller: _emailController,
-              label: 'Email',
+              label: 'Email (optional)',
               keyboardType: TextInputType.emailAddress,
             ),
-            if (!_editing) ...[
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: _passwordController,
-                label: 'Password',
-                obscureText: true,
-              ),
-            ],
             const SizedBox(height: 16),
-            AppTextField(controller: _addressController, label: 'Address'),
+            AppTextField(controller: _addressController, label: 'Address (optional)'),
             if (_editing) ...[
               const SizedBox(height: 16),
               SizedBox(

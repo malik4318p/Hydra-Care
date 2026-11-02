@@ -13,7 +13,7 @@ class CustomerEmailService {
 
   Future<void> changeCustomerEmail({
     required int customerId,
-    required String email,
+    required String? email,
   }) async {
     final session = _supabase.auth.currentSession;
     if (session == null || session.accessToken.isEmpty) {

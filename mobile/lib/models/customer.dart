@@ -8,6 +8,7 @@ class Customer {
     required this.role,
     required this.address,
     required this.active,
+    this.authUserId,
     this.createdAt,
     this.updatedAt,
   });
@@ -16,14 +17,15 @@ class Customer {
   final int userId;
   final String name;
   final String phone;
-  final String email;
+  final String? email;
   final String role;
-  final String address;
+  final String? address;
 
   /// Archived (soft-deleted) customers have this set to false. They stay in
   /// the database with all their history; they are just hidden from normal
   /// business operations such as new sales and payments.
   final bool active;
+  final String? authUserId;
   final String? createdAt;
   final String? updatedAt;
 
@@ -33,12 +35,13 @@ class Customer {
       userId: json['user_id'] as int,
       name: json['name'] as String,
       phone: json['phone'] as String,
-      email: json['email'] as String,
+      email: json['email'] as String?,
       role: json['role'] as String,
-      address: json['address'] as String,
+      address: json['address'] as String?,
       // Defaults to true for responses that don't select this column, such
       // as the customer summary RPC's own profile object.
       active: json['active'] as bool? ?? true,
+      authUserId: json['auth_user_id'] as String?,
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
     );

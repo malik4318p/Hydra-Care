@@ -56,7 +56,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       if (customer == null) return false;
       return customer.name.toLowerCase().contains(term) ||
           customer.phone.toLowerCase().contains(term) ||
-          customer.email.toLowerCase().contains(term);
+          (customer.email?.toLowerCase().contains(term) ?? false);
     }).toList();
   }
 

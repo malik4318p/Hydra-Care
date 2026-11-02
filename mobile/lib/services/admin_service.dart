@@ -47,15 +47,13 @@ class AdminService {
   Future<Customer> createCustomer({
     required String name,
     required String phone,
-    required String email,
-    required String password,
-    required String address,
+    String? email,
+    String? address,
   }) async {
     return _accounts.createCustomer(
       name: name,
       phone: phone,
       email: email,
-      password: password,
       address: address,
     );
   }
@@ -64,8 +62,8 @@ class AdminService {
     required int id,
     required String name,
     required String phone,
-    required String email,
-    required String address,
+    required String? email,
+    required String? address,
   }) async {
     final currentEmail = await _customers.customerEmail(id);
     if (currentEmail != email) {

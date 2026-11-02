@@ -15,9 +15,8 @@ class CustomerCreateService {
   Future<Customer> createCustomer({
     required String name,
     required String phone,
-    required String email,
-    required String password,
-    required String address,
+    String? email,
+    String? address,
   }) async {
     final session = _supabase.auth.currentSession;
     if (session == null || session.accessToken.isEmpty) {
@@ -31,7 +30,6 @@ class CustomerCreateService {
           'name': name,
           'phone': phone,
           'email': email,
-          'password': password,
           'address': address,
         },
       );
@@ -55,6 +53,7 @@ class CustomerCreateService {
       'email': row['email'],
       'role': row['role'],
       'address': row['address'],
+      'auth_user_id': row['auth_user_id'],
       'created_at': row['created_at']?.toString(),
       'updated_at': row['updated_at']?.toString(),
     };

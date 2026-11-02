@@ -4,21 +4,17 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   applicationUserInsert,
-  authCreateAttributes,
   createCustomerAccount,
 } from '../../supabase/functions/create-customer/create-customer.js';
 
 const adminAuthId = '11111111-1111-4111-8111-111111111111';
-const createdAuthId = '22222222-2222-4222-8222-222222222222';
 const token = 'Bearer supabase-access-token';
-const password = 'secret-12';
 
 function payload(overrides = {}) {
   return {
     name: 'New Customer',
     phone: '5551112222',
     email: 'new@integration.hydra-care.test',
-    password,
     address: '12 Test Road',
     ...overrides,
   };
@@ -36,13 +32,9 @@ function gateway(overrides = {}) {
       calls.push(['applicationUserByAuthId']);
       return { id: 1, role: 'admin' };
     },
-    async emailTaken() {
-      calls.push(['emailTaken']);
+    async emailTaken(email) {
+      calls.push(['emailTaken', email]);
       return false;
-    },
-    async createAuthUser(email, plainPassword) {
-      calls.push(['createAuthUser', email, plainPassword]);
-      return { id: createdAuthId, email };
     },
     async insertApplicationUser(row) {
       calls.push(['insertApplicationUser', row]);
@@ -51,7 +43,7 @@ function gateway(overrides = {}) {
         name: row.name,
         phone: row.phone,
         email: row.email,
-        authUserId: row.auth_user_id,
+        authUserId: null,
       };
     },
     async insertCustomer(row) {
@@ -66,9 +58,6 @@ function gateway(overrides = {}) {
     async deleteApplicationUser(userId) {
       calls.push(['deleteApplicationUser', userId]);
     },
-    async deleteAuthUser(authUserId) {
-      calls.push(['deleteAuthUser', authUserId]);
-    },
     ...overrides,
   };
   return fake;
@@ -78,54 +67,112 @@ function names(fake) {
   return fake.calls.map((call) => call[0]);
 }
 
+async function create(overrides = {}, gatewayOverrides = {}) {
+  const fake = gateway(gatewayOverrides);
+  const result = await createCustomerAccount({
+    authorization: token,
+    payload: payload(overrides),
+    gateway: fake,
+  });
+  return { fake, result };
+}
+
 describe('create-customer', () => {
-  it('creates the Auth password and stores no bcrypt hash on public.users', async () => {
-    const fake = gateway();
-    const result = await createCustomerAccount({
-      authorization: token,
-      payload: payload(),
-      gateway: fake,
-    });
+  it('creates a ledger customer with name and phone only', async () => {
+    const { fake, result } = await create({ email: null, address: null });
 
     assert.equal(result.status, 201);
-    assert.equal(result.body.data.email, 'new@integration.hydra-care.test');
-    assert.equal(result.body.data.role, 'customer');
-    assert.equal(result.body.data.user_id, 9);
+    assert.equal(result.body.data.name, 'New Customer');
+    assert.equal(result.body.data.phone, '5551112222');
+    assert.equal(result.body.data.email, null);
+    assert.equal(result.body.data.address, null);
+    assert.equal(result.body.data.auth_user_id, null);
     assert.equal(Object.hasOwn(result.body.data, 'password'), false);
     assert.equal(Object.hasOwn(result.body.data, 'password_hash'), false);
 
-    const authCall = fake.calls.find((call) => call[0] === 'createAuthUser');
-    assert.deepEqual(authCall, ['createAuthUser', 'new@integration.hydra-care.test', password]);
-
     const insert = fake.calls.find((call) => call[0] === 'insertApplicationUser')[1];
+    assert.equal(insert.email, null);
     assert.equal(insert.password_hash, null);
-    assert.equal(insert.auth_user_id, createdAuthId);
-    assert.equal(insert.role, 'customer');
-    assert.equal(Object.hasOwn(insert, 'password'), false);
+    assert.equal(insert.auth_user_id, null);
+    assert.equal(names(fake).includes('emailTaken'), false);
+    assert.equal(names(fake).includes('deleteApplicationUser'), false);
+  });
+
+  it('accepts an optional valid email and address', async () => {
+    const { fake, result } = await create();
+
+    assert.equal(result.status, 201);
+    assert.equal(result.body.data.email, 'new@integration.hydra-care.test');
+    assert.equal(result.body.data.address, '12 Test Road');
+    assert.deepEqual(
+      fake.calls.find((call) => call[0] === 'emailTaken'),
+      ['emailTaken', 'new@integration.hydra-care.test']
+    );
+  });
+
+  it('treats missing, null, and blank optional values as null', async () => {
+    const missing = payload();
+    delete missing.email;
+    delete missing.address;
+
+    for (const optional of [
+      missing,
+      payload({ email: null, address: null }),
+      payload({ email: '   ', address: '   ' }),
+    ]) {
+      const fake = gateway();
+      const result = await createCustomerAccount({
+        authorization: token,
+        payload: optional,
+        gateway: fake,
+      });
+      assert.equal(result.status, 201);
+      assert.equal(result.body.data.email, null);
+      assert.equal(result.body.data.address, null);
+    }
+  });
+
+  it('does not create or delete an Auth user', async () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url));
+    const source = [
+      readFileSync(`${root}/supabase/functions/create-customer/index.ts`, 'utf8'),
+      readFileSync(`${root}/supabase/functions/create-customer/create-customer.js`, 'utf8'),
+      readFileSync(`${root}/supabase/functions/create-customer/gateway.js`, 'utf8'),
+    ].join('\n');
+    const { fake, result } = await create({ email: null, address: null });
+
+    assert.equal(result.status, 201);
+    assert.doesNotMatch(source, /auth\.admin\.createUser/);
+    assert.doesNotMatch(source, /deleteAuthUser/);
+    assert.equal(names(fake).includes('createAuthUser'), false);
     assert.equal(names(fake).includes('deleteAuthUser'), false);
   });
 
-  it('rejects a non-admin before creating an Auth user', async () => {
-    const fake = gateway({
-      async applicationUserByAuthId() {
-        return { id: 2, role: 'customer' };
-      },
-    });
-    const result = await createCustomerAccount({
-      authorization: token,
-      payload: payload(),
-      gateway: fake,
-    });
+  it('rejects an invalid non-empty email', async () => {
+    const { fake, result } = await create({ email: 'not-an-email' });
 
-    assert.equal(result.status, 403);
-    assert.equal(names(fake).includes('createAuthUser'), false);
+    assert.equal(result.status, 400);
+    assert.equal(result.body.message, 'Enter a valid email.');
+    assert.equal(names(fake).includes('emailTaken'), false);
     assert.equal(names(fake).includes('insertApplicationUser'), false);
   });
 
-  it('rejects an email that already exists before creating an Auth user', async () => {
+  it('rejects missing name and phone', async () => {
+    for (const field of ['name', 'phone']) {
+      const overrides = { [field]: '' };
+      const { fake, result } = await create(overrides);
+
+      assert.equal(result.status, 400);
+      assert.equal(result.body.message, 'Name and phone are required.');
+      assert.equal(names(fake).includes('insertApplicationUser'), false);
+    }
+  });
+
+  it('rejects a duplicate non-null email before insertion', async () => {
+    const calls = [];
     const fake = gateway({
-      async emailTaken() {
-        fake.calls.push(['emailTaken']);
+      async emailTaken(email) {
+        calls.push(email);
         return true;
       },
     });
@@ -137,68 +184,83 @@ describe('create-customer', () => {
 
     assert.equal(result.status, 409);
     assert.equal(result.body.message, 'A user with this email already exists');
-    assert.equal(names(fake).includes('createAuthUser'), false);
+    assert.equal(names(fake).includes('insertApplicationUser'), false);
+    assert.deepEqual(calls, ['new@integration.hydra-care.test']);
   });
 
-  it('deletes the Auth user when the application insert fails', async () => {
+  it('allows multiple customers with null email', async () => {
+    const created = [];
     const fake = gateway({
-      async insertApplicationUser() {
-        fake.calls.push(['insertApplicationUser']);
-        const error = new Error('null value in column "password_hash"');
-        error.code = '23502';
-        throw error;
+      async insertApplicationUser(row) {
+        created.push(row);
+        return { id: created.length, name: row.name, phone: row.phone, email: row.email };
+      },
+      async insertCustomer(row) {
+        return { id: row.userId, address: row.address, createdAt: null, updatedAt: null };
+      },
+    });
+
+    for (const name of ['First', 'Second']) {
+      const result = await createCustomerAccount({
+        authorization: token,
+        payload: payload({ name, email: null }),
+        gateway: fake,
+      });
+      assert.equal(result.status, 201);
+    }
+
+    assert.equal(created.length, 2);
+    assert.equal(created[0].email, null);
+    assert.equal(created[1].email, null);
+  });
+
+  it('cleans up the application user when customer insertion fails', async () => {
+    const { fake, result } = await create({ email: null, address: null }, {
+      async insertCustomer() {
+        fake.calls.push(['insertCustomer']);
+        throw new Error('customer insert failed');
+      },
+    });
+
+    assert.equal(result.status, 500);
+    assert.deepEqual(
+      fake.calls.filter((call) => call[0] === 'deleteApplicationUser'),
+      [['deleteApplicationUser', 9]]
+    );
+    assert.equal(names(fake).includes('deleteAuthUser'), false);
+  });
+
+  it('requires an authenticated administrator', async () => {
+    const fake = gateway({
+      async applicationUserByAuthId() {
+        return { id: 2, role: 'customer' };
       },
     });
     const result = await createCustomerAccount({
       authorization: token,
-      payload: payload(),
+      payload: payload({ email: null }),
       gateway: fake,
     });
 
-    assert.equal(result.status, 400);
-    assert.equal(result.body.success, false);
+    assert.equal(result.status, 403);
+    assert.equal(names(fake).includes('insertApplicationUser'), false);
+  });
+
+  it('builds a public user row without an Auth link or password hash', () => {
     assert.deepEqual(
-      fake.calls.filter((call) => call[0] === 'deleteAuthUser'),
-      [['deleteAuthUser', createdAuthId]]
+      applicationUserInsert({
+        name: 'New Customer',
+        phone: '5551112222',
+        email: null,
+      }),
+      {
+        name: 'New Customer',
+        phone: '5551112222',
+        email: null,
+        password_hash: null,
+        role: 'customer',
+        auth_user_id: null,
+      }
     );
-    assert.equal(names(fake).includes('insertCustomer'), false);
-  });
-
-  it('builds an Auth admin payload with password and without password_hash', () => {
-    const attributes = authCreateAttributes('new@integration.hydra-care.test', password);
-    assert.deepEqual(attributes, {
-      email: 'new@integration.hydra-care.test',
-      password,
-      email_confirm: true,
-    });
-    assert.equal(Object.hasOwn(attributes, 'password_hash'), false);
-
-    const row = applicationUserInsert({
-      name: 'New Customer',
-      phone: '5551112222',
-      email: 'new@integration.hydra-care.test',
-      authUserId: createdAuthId,
-    });
-    assert.equal(row.password_hash, null);
-    assert.equal(row.password_hash?.startsWith?.('$2'), undefined);
-  });
-
-  it('leaves Express customer creation on bcrypt', () => {
-    const root = fileURLToPath(new URL('../..', import.meta.url));
-    const customerService = readFileSync(`${root}/backend/src/services/customerService.js`, 'utf8');
-    const adminService = readFileSync(`${root}/mobile/lib/services/admin_service.dart`, 'utf8');
-    const migration = readFileSync(
-      `${root}/backend/database/migrations/006_nullable_password_hash.sql`,
-      'utf8'
-    );
-    const createStart = adminService.indexOf('Future<Customer> createCustomer');
-    const createBody = adminService.slice(createStart, adminService.indexOf('Future<Customer> updateCustomer'));
-
-    assert.match(customerService, /bcrypt\.hash\(password, SALT_ROUNDS\)/);
-    assert.match(customerService, /INSERT INTO users \(name, phone, email, password_hash, role\)/);
-    assert.doesNotMatch(createBody, /_apiClient\.post\(\s*'\/customers'/);
-    assert.match(createBody, /_accounts\.createCustomer/);
-    assert.match(migration, /ALTER COLUMN password_hash DROP NOT NULL/);
-    assert.doesNotMatch(migration, /UPDATE|INSERT|\$2[aby]/);
   });
 });

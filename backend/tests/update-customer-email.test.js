@@ -51,6 +51,10 @@ function gateway(overrides = {}) {
       calls.push(['updateAuthEmail', authUserId, email]);
       return { email };
     },
+    async updatePublicEmail(userId, email) {
+      calls.push(['updatePublicEmail', userId, email]);
+      return { email };
+    },
     async publicEmail() {
       calls.push(['publicEmail']);
       return 'next@integration.hydra-care.test';
@@ -196,20 +200,104 @@ describe('update-customer-email', () => {
     );
   });
 
-  it('rejects a customer who is not linked to Auth', async () => {
+  it('treats an empty update as unchanged for an unlinked customer with no email', async () => {
     const fake = gateway({
       async customerAccount() {
-        return target({ authUserId: null });
+        return target({ authUserId: null, email: null });
       },
     });
     const result = await changeCustomerEmail({
       authorization: token,
-      payload: { customer_id: 7, email: 'next@integration.hydra-care.test' },
+      payload: { customer_id: 7, email: null },
+      gateway: fake,
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.data.email, null);
+    assert.equal(result.body.data.auth_user_id, null);
+    assert.equal(result.body.data.unchanged, true);
+    assert.equal(names(fake).includes('updatePublicEmail'), false);
+    assert.equal(names(fake).includes('updateAuthEmail'), false);
+    assert.equal(names(fake).includes('authUser'), false);
+  });
+
+  it('does not clear an existing unlinked email on null or blank updates', async () => {
+    for (const submittedEmail of [null, '']) {
+      const fake = gateway({
+        async customerAccount() {
+          return target({ authUserId: null, email: 'old@integration.hydra-care.test' });
+        },
+      });
+      const result = await changeCustomerEmail({
+        authorization: token,
+        payload: { customer_id: 7, email: submittedEmail },
+        gateway: fake,
+      });
+
+      assert.equal(result.status, 200);
+      assert.equal(result.body.data.email, 'old@integration.hydra-care.test');
+      assert.equal(result.body.data.unchanged, true);
+      assert.equal(names(fake).includes('updatePublicEmail'), false);
+      assert.equal(names(fake).includes('updateAuthEmail'), false);
+    }
+  });
+
+  it('updates an unlinked customer with a valid replacement email without calling Auth', async () => {
+    const fake = gateway({
+      async customerAccount() {
+        return target({ authUserId: null, email: 'old@integration.hydra-care.test' });
+      },
+    });
+    const result = await changeCustomerEmail({
+      authorization: token,
+      payload: { customer_id: 7, email: 'new@integration.hydra-care.test' },
+      gateway: fake,
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.data.email, 'new@integration.hydra-care.test');
+    assert.equal(result.body.data.auth_user_id, null);
+    assert.equal(result.body.data.unchanged, false);
+    assert.deepEqual(
+      fake.calls.filter((call) => call[0] === 'updatePublicEmail'),
+      [['updatePublicEmail', 9, 'new@integration.hydra-care.test']]
+    );
+    assert.equal(names(fake).includes('updateAuthEmail'), false);
+    assert.equal(names(fake).includes('authUser'), false);
+  });
+
+  it('rejects a blank email for a linked customer', async () => {
+    const fake = gateway();
+    const result = await changeCustomerEmail({
+      authorization: token,
+      payload: { customer_id: 7, email: null },
       gateway: fake,
     });
 
     assert.equal(result.status, 400);
-    assert.equal(result.body.message, 'This customer is not linked to a sign-in account.');
+    assert.equal(result.body.message, 'Enter a valid email.');
+    assert.equal(names(fake).includes('updateAuthEmail'), false);
+  });
+
+  it('rejects a duplicate email for an unlinked customer without updating it', async () => {
+    const fake = gateway({
+      async customerAccount() {
+        return target({ authUserId: null, email: null });
+      },
+      async emailTaken() {
+        fake.calls.push(['emailTaken']);
+        return true;
+      },
+    });
+    const result = await changeCustomerEmail({
+      authorization: token,
+      payload: { customer_id: 7, email: 'taken@integration.hydra-care.test' },
+      gateway: fake,
+    });
+
+    assert.equal(result.status, 409);
+    assert.equal(result.body.message, 'A user with this email already exists');
+    assert.equal(names(fake).includes('updatePublicEmail'), false);
     assert.equal(names(fake).includes('updateAuthEmail'), false);
   });
 

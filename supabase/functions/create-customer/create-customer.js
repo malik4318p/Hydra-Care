@@ -2,6 +2,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INVALID_OPTIONAL_VALUE = Symbol('invalid optional value');
 
 export class CustomerCreateError extends Error {
   constructor(status, message) {
@@ -11,14 +12,6 @@ export class CustomerCreateError extends Error {
   }
 }
 
-export function authCreateAttributes(email, password) {
-  return {
-    email,
-    password,
-    email_confirm: true,
-  };
-}
-
 export function applicationUserInsert(fields) {
   return {
     name: fields.name,
@@ -26,11 +19,11 @@ export function applicationUserInsert(fields) {
     email: fields.email,
     password_hash: null,
     role: 'customer',
-    auth_user_id: fields.authUserId,
+    auth_user_id: null,
   };
 }
 
-export function mapAuthCreateError(error) {
+export function mapCustomerInsertError(error) {
   const message = typeof error?.message === 'string' ? error.message : '';
   const code = typeof error?.code === 'string' ? error.code : '';
   const status = Number(error?.status ?? error?.statusCode);
@@ -74,19 +67,30 @@ function requiredText(value, maxLength) {
   return text;
 }
 
-function requestedEmail(value) {
-  const email = requiredText(value, 255);
-  if (!email || !EMAIL_PATTERN.test(email)) {
+function optionalText(value, maxLength) {
+  if (value == null) {
     return null;
   }
-  return email;
+  if (typeof value !== 'string') {
+    return INVALID_OPTIONAL_VALUE;
+  }
+
+  const text = value.trim();
+  if (text.length === 0) {
+    return null;
+  }
+  if (text.length > maxLength) {
+    return INVALID_OPTIONAL_VALUE;
+  }
+  return text;
 }
 
-function requestedPassword(value) {
-  if (typeof value !== 'string' || value.length < 6) {
-    return null;
+function optionalEmail(value) {
+  const email = optionalText(value, 255);
+  if (email === null || email === INVALID_OPTIONAL_VALUE) {
+    return email;
   }
-  return value;
+  return EMAIL_PATTERN.test(email) ? email : INVALID_OPTIONAL_VALUE;
 }
 
 export async function createCustomerAccount(input) {
@@ -130,42 +134,21 @@ async function performCreateCustomer({ authorization, payload, gateway }) {
 
   const name = requiredText(payload?.name, 255);
   const phone = requiredText(payload?.phone, 20);
-  const email = requestedEmail(payload?.email);
-  const address = requiredText(payload?.address, 500);
-  const password = requestedPassword(payload?.password);
-  const emailText = typeof payload?.email === 'string' ? payload.email.trim() : '';
+  const email = optionalEmail(payload?.email);
+  const address = optionalText(payload?.address, 500);
 
-  if (!name || !phone || emailText.length === 0 || !address) {
-    return fail(400, 'Name, phone, email, and address are required.');
+  if (!name || !phone) {
+    return fail(400, 'Name and phone are required.');
   }
-  if (!email) {
+  if (email === INVALID_OPTIONAL_VALUE) {
     return fail(400, 'Enter a valid email.');
   }
-  if (!password) {
-    return fail(400, 'Password must be at least 6 characters.');
+  if (address === INVALID_OPTIONAL_VALUE) {
+    return fail(400, 'Enter a valid address.');
   }
 
-  if (await gateway.emailTaken(email)) {
+  if (email !== null && (await gateway.emailTaken(email))) {
     return fail(409, 'A user with this email already exists');
-  }
-
-  let authUser;
-  try {
-    authUser = await gateway.createAuthUser(email, password);
-  } catch (error) {
-    if (error instanceof CustomerCreateError) {
-      return fail(error.status, error.message);
-    }
-    const mapped = mapAuthCreateError(error);
-    return fail(mapped.status, mapped.message);
-  }
-
-  if (!authUser || typeof authUser.id !== 'string' || !UUID_PATTERN.test(authUser.id)) {
-    return fail(500, 'The customer could not be created.');
-  }
-  if (typeof authUser.email !== 'string' || authUser.email.length === 0) {
-    await removeAuthUser(gateway, authUser.id);
-    return fail(500, 'The customer could not be created.');
   }
 
   let applicationUser;
@@ -174,16 +157,14 @@ async function performCreateCustomer({ authorization, payload, gateway }) {
       applicationUserInsert({
         name,
         phone,
-        email: authUser.email,
-        authUserId: authUser.id,
+        email,
       })
     );
   } catch (error) {
-    await removeAuthUser(gateway, authUser.id);
     if (error instanceof CustomerCreateError) {
       return fail(error.status, error.message);
     }
-    const mapped = mapAuthCreateError(error);
+    const mapped = mapCustomerInsertError(error);
     return fail(mapped.status, mapped.message);
   }
 
@@ -195,7 +176,6 @@ async function performCreateCustomer({ authorization, payload, gateway }) {
     });
   } catch (error) {
     await removeApplicationUser(gateway, applicationUser.id);
-    await removeAuthUser(gateway, authUser.id);
     if (error instanceof CustomerCreateError) {
       return fail(error.status, error.message);
     }
@@ -209,18 +189,11 @@ async function performCreateCustomer({ authorization, payload, gateway }) {
     phone: applicationUser.phone,
     email: applicationUser.email,
     role: 'customer',
+    auth_user_id: null,
     address: customer.address,
     created_at: customer.createdAt,
     updated_at: customer.updatedAt,
   });
-}
-
-async function removeAuthUser(gateway, authUserId) {
-  try {
-    await gateway.deleteAuthUser(authUserId);
-  } catch {
-    // The caller still receives a failure.
-  }
 }
 
 async function removeApplicationUser(gateway, userId) {

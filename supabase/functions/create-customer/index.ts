@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   try {
     payload = await req.json();
   } catch {
-    return json({ success: false, message: 'Name, phone, email, and address are required.' }, 400);
+    return json({ success: false, message: 'Name and phone are required.' }, 400);
   }
 
   const admin = createClient(url, secret, {

@@ -2,6 +2,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INVALID_EMAIL = Symbol('invalid email');
 
 export class EmailChangeError extends Error {
   constructor(status, message) {
@@ -62,12 +63,18 @@ function customerId(value) {
 }
 
 function requestedEmail(value) {
-  if (typeof value !== 'string') {
+  if (value == null) {
     return null;
   }
+  if (typeof value !== 'string') {
+    return INVALID_EMAIL;
+  }
   const email = value.trim();
-  if (email.length === 0 || email.length > 255 || !EMAIL_PATTERN.test(email)) {
+  if (email.length === 0) {
     return null;
+  }
+  if (email.length > 255 || !EMAIL_PATTERN.test(email)) {
+    return INVALID_EMAIL;
   }
   return email;
 }
@@ -116,7 +123,7 @@ async function performCustomerEmailChange({ authorization, payload, gateway }) {
   if (!id) {
     return fail(400, 'A valid customer is required.');
   }
-  if (!email) {
+  if (email === INVALID_EMAIL) {
     return fail(400, 'Enter a valid email.');
   }
 
@@ -127,8 +134,58 @@ async function performCustomerEmailChange({ authorization, payload, gateway }) {
   if (target.role !== 'customer') {
     return fail(403, 'You do not have permission to perform this action');
   }
+
   if (typeof target.authUserId !== 'string' || !UUID_PATTERN.test(target.authUserId)) {
-    return fail(400, 'This customer is not linked to a sign-in account.');
+    if (email === null) {
+      return ok({
+        customer_id: target.customerId,
+        user_id: target.userId,
+        email: target.email,
+        auth_user_id: null,
+        unchanged: true,
+      });
+    }
+
+    if (target.email === email) {
+      return ok({
+        customer_id: target.customerId,
+        user_id: target.userId,
+        email,
+        auth_user_id: null,
+        unchanged: true,
+      });
+    }
+
+    if (email !== null && (await gateway.emailTaken(email, target.userId))) {
+      return fail(409, 'A user with this email already exists');
+    }
+
+    let updated;
+    try {
+      updated = await gateway.updatePublicEmail(target.userId, email);
+    } catch (error) {
+      if (error instanceof EmailChangeError) {
+        return fail(error.status, error.message);
+      }
+      const mapped = mapAuthUpdateError(error);
+      return fail(mapped.status, mapped.message);
+    }
+
+    if (!updated || updated.email !== email) {
+      return fail(500, 'The email could not be changed.');
+    }
+
+    return ok({
+      customer_id: target.customerId,
+      user_id: target.userId,
+      email,
+      auth_user_id: null,
+      unchanged: false,
+    });
+  }
+
+  if (email === null) {
+    return fail(400, 'Enter a valid email.');
   }
 
   const authUser = await gateway.authUser(target.authUserId);

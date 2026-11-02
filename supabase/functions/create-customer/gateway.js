@@ -1,4 +1,4 @@
-import { CustomerCreateError, authCreateAttributes } from './create-customer.js';
+import { CustomerCreateError } from './create-customer.js';
 
 function fail(status, message) {
   throw new CustomerCreateError(status, message);
@@ -41,21 +41,6 @@ export function createCustomerGateway(admin) {
         fail(500, 'The customer could not be created.');
       }
       return Array.isArray(data) && data.length > 0;
-    },
-
-    async createAuthUser(email, password) {
-      const { data, error } = await admin.auth.admin.createUser(
-        authCreateAttributes(email, password)
-      );
-
-      if (error) {
-        throw error;
-      }
-
-      return {
-        id: data?.user?.id,
-        email: data?.user?.email,
-      };
     },
 
     async insertApplicationUser(row) {
@@ -108,11 +93,5 @@ export function createCustomerGateway(admin) {
       }
     },
 
-    async deleteAuthUser(authUserId) {
-      const { error } = await admin.auth.admin.deleteUser(authUserId);
-      if (error) {
-        throw error;
-      }
-    },
   };
 }

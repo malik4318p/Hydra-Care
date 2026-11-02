@@ -42,6 +42,12 @@ describe('auth email sync trigger', { timeout: 60_000 }, () => {
   });
 
   it('copies a changed Auth email onto the linked public user and rolls the migration back', async () => {
+    const beforeTrigger = await pool.query(
+      `SELECT 1
+       FROM pg_trigger
+       WHERE tgname = 'trg_auth_user_email_sync'
+         AND NOT tgisinternal`
+    );
     const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const originalEmail = `sync-${stamp}-a@integration.hydra-care.test`;
     const changedEmail = `sync-${stamp}-b@integration.hydra-care.test`;
@@ -53,10 +59,15 @@ describe('auth email sync trigger', { timeout: 60_000 }, () => {
       new URL('../database/migrations/005_auth_email_sync.sql', import.meta.url),
       'utf8'
     );
+    const ledgerOnlySql = readFileSync(
+      new URL('../database/migrations/009_ledger_only_customers.sql', import.meta.url),
+      'utf8'
+    );
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
+      await client.query(ledgerOnlySql);
       await client.query(sql);
 
       await client.query('UPDATE auth.users SET email = $1 WHERE id = $2', [
@@ -79,6 +90,12 @@ describe('auth email sync trigger', { timeout: 60_000 }, () => {
         `INSERT INTO public.users (name, phone, email, password_hash, role, auth_user_id)
          VALUES ($1, $2, $3, $4, 'customer', $5)`,
         ['Other Customer', '5553334444', otherEmail, passwordHash, otherAuthUserId]
+      );
+      const ledgerOnly = await client.query(
+        `INSERT INTO public.users (name, phone, email, password_hash, role)
+         VALUES ($1, $2, NULL, $3, 'customer')
+         RETURNING id`,
+        ['Ledger Customer', '5559999999', passwordHash]
       );
 
       const beforeAuth = await client.query(
@@ -118,6 +135,11 @@ describe('auth email sync trigger', { timeout: 60_000 }, () => {
         'Auth password changed'
       );
 
+      const unlinked = await client.query('SELECT email FROM public.users WHERE id = $1', [
+        ledgerOnly.rows[0].id,
+      ]);
+      assert.equal(unlinked.rows[0].email, null);
+
       await client.query('SAVEPOINT duplicate_email');
       await assert.rejects(
         client.query('UPDATE auth.users SET email = $1 WHERE id = $2', [otherEmail, authUserId]),
@@ -145,6 +167,6 @@ describe('auth email sync trigger', { timeout: 60_000 }, () => {
        WHERE tgname = 'trg_auth_user_email_sync'
          AND NOT tgisinternal`
     );
-    assert.equal(trigger.rowCount, 0);
+    assert.equal(trigger.rowCount, beforeTrigger.rowCount);
   });
 });

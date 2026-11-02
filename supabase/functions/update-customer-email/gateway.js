@@ -97,6 +97,23 @@ export function createEmailChangeGateway(admin) {
       return { email: stored };
     },
 
+    async updatePublicEmail(userId, email) {
+      const { data, error } = await admin
+        .from('users')
+        .update({ email })
+        .eq('id', userId)
+        .select('email')
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+      if (!data) {
+        fail(404, 'Customer not found');
+      }
+      return { email: data.email ?? null };
+    },
+
     async publicEmail(userId) {
       const { data, error } = await admin
         .from('users')

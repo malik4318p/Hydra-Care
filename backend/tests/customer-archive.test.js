@@ -7,6 +7,10 @@ const MIGRATION_SQL = readFileSync(
   new URL('../database/migrations/008_customer_archive.sql', import.meta.url),
   'utf8'
 );
+const LEDGER_ONLY_SQL = readFileSync(
+  new URL('../database/migrations/009_ledger_only_customers.sql', import.meta.url),
+  'utf8'
+);
 
 /**
  * Everything below runs inside one Postgres transaction that is always
@@ -18,12 +22,27 @@ const MIGRATION_SQL = readFileSync(
  */
 describe('customer archive and search (live, rolled back)', { timeout: 60_000 }, () => {
   it('applies the migration, then exercises archive/restore/search, then rolls everything back', async () => {
+    const beforeTriggers = await pool.query(
+      `SELECT count(*)::int AS n FROM pg_trigger
+       WHERE tgname IN ('trg_transactions_block_archived_customer', 'trg_payments_block_archived_customer')
+         AND NOT tgisinternal`
+    );
     const client = await pool.connect();
     const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
     try {
       await client.query('BEGIN');
-      await client.query(MIGRATION_SQL);
+      await client.query(LEDGER_ONLY_SQL);
+      const activeColumn = await client.query(
+        `SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'customers'
+           AND column_name = 'active'`
+      );
+      if (activeColumn.rowCount === 0) {
+        await client.query(MIGRATION_SQL);
+      }
 
       // --- New-rule item 6: the transactions trigger exists; there is no payments guard trigger.
       const triggers = await client.query(
@@ -51,19 +70,25 @@ describe('customer archive and search (live, rolled back)', { timeout: 60_000 },
       );
       const productId = productResult.rows[0].id;
 
-      async function insertCustomer(name, phone, email) {
+      async function insertCustomer(
+        name,
+        phone,
+        email,
+        address = 'Test Address',
+        userPasswordHash = passwordHash
+      ) {
         const userResult = await client.query(
           `INSERT INTO public.users (name, phone, email, password_hash, role)
-           VALUES ($1, $2, $3, $4, 'customer')
-           RETURNING id`,
-          [name, phone, email, passwordHash]
+            VALUES ($1, $2, $3, $4, 'customer')
+            RETURNING id`,
+          [name, phone, email, userPasswordHash]
         );
         const userId = userResult.rows[0].id;
         const customerResult = await client.query(
           `INSERT INTO public.customers (user_id, address)
-           VALUES ($1, 'Test Address')
-           RETURNING id, active`,
-          [userId]
+            VALUES ($1, $2)
+            RETURNING id, active`,
+          [userId, address]
         );
         return { userId, customerId: customerResult.rows[0].id, active: customerResult.rows[0].active };
       }
@@ -85,6 +110,25 @@ describe('customer archive and search (live, rolled back)', { timeout: 60_000 },
         `beta.${stamp}@example.test`
       );
       assert.equal(customerB.active, true);
+
+      const ledgerOnly = await insertCustomer(
+        `LedgerOnly${stamp}`,
+        `9${stamp}3`,
+        null,
+        null,
+        null
+      );
+      const ledgerRow = await client.query(
+        `SELECT u.email, u.password_hash, u.auth_user_id, c.address
+         FROM public.users AS u
+         JOIN public.customers AS c ON c.user_id = u.id
+         WHERE c.id = $1`,
+        [ledgerOnly.customerId]
+      );
+      assert.equal(ledgerRow.rows[0].email, null);
+      assert.equal(ledgerRow.rows[0].password_hash, null);
+      assert.equal(ledgerRow.rows[0].auth_user_id, null);
+      assert.equal(ledgerRow.rows[0].address, null);
 
       async function actAsAdmin() {
         await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [adminAuthId]);
@@ -313,7 +357,11 @@ describe('customer archive and search (live, rolled back)', { timeout: 60_000 },
       [`Mega${stamp}%`]
     );
 
-    assert.equal(trigger.rows[0].n, 0, 'trigger from this test run must not persist');
+    assert.equal(
+      trigger.rows[0].n,
+      beforeTriggers.rows[0].n,
+      'trigger state must be restored after rollback'
+    );
     assert.equal(leftoverProducts.rows[0].n, 0, 'test product must not persist');
     assert.equal(leftoverUsers.rows[0].n, 0, 'test customers must not persist');
 

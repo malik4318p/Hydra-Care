@@ -50,10 +50,12 @@ class CustomerDataService {
   /// Archives a customer (`active = false`). The row, and every transaction
   /// and payment for it, is left in place. The customer's Supabase Auth
   /// account is not touched.
-  Future<void> archiveCustomer(int id) => setCustomerActive(id: id, active: false);
+  Future<void> archiveCustomer(int id) =>
+      setCustomerActive(id: id, active: false);
 
   /// Restores a previously archived customer (`active = true`).
-  Future<void> restoreCustomer(int id) => setCustomerActive(id: id, active: true);
+  Future<void> restoreCustomer(int id) =>
+      setCustomerActive(id: id, active: true);
 
   Future<void> setCustomerActive({required int id, required bool active}) {
     return _guard(() async {
@@ -96,6 +98,84 @@ class CustomerDataService {
         params: {'target_customer_id': customerId},
       );
       return CustomerSummary.fromJson(_summaryJson(_map(data)));
+    });
+  }
+
+  Future<CustomerSummary> getCustomerSummary(int customerId) {
+    return _guard(() async {
+      final data = await _supabase.rpc(
+        'get_customer_summary',
+        params: {'target_customer_id': customerId},
+      );
+      return CustomerSummary.fromJson(_summaryJson(_map(data)));
+    });
+  }
+
+  Future<void> collectSecurity({
+    required int customerId,
+    required num amount,
+    String? notes,
+  }) {
+    return _guard(() async {
+      await _supabase.rpc(
+        'collect_customer_security',
+        params: {
+          'target_customer_id': customerId,
+          'amount': amount,
+          'notes': _emptyAsNull(notes),
+        },
+      );
+    });
+  }
+
+  Future<void> refundSecurity({
+    required int customerId,
+    required num amount,
+    String? notes,
+  }) {
+    return _guard(() async {
+      await _supabase.rpc(
+        'refund_customer_security',
+        params: {
+          'target_customer_id': customerId,
+          'amount': amount,
+          'notes': _emptyAsNull(notes),
+        },
+      );
+    });
+  }
+
+  Future<void> issueBottles({
+    required int customerId,
+    required int quantity,
+    String? notes,
+  }) {
+    return _guard(() async {
+      await _supabase.rpc(
+        'issue_customer_bottles',
+        params: {
+          'target_customer_id': customerId,
+          'quantity': quantity,
+          'notes': _emptyAsNull(notes),
+        },
+      );
+    });
+  }
+
+  Future<void> returnBottles({
+    required int customerId,
+    required int quantity,
+    String? notes,
+  }) {
+    return _guard(() async {
+      await _supabase.rpc(
+        'return_customer_bottles',
+        params: {
+          'target_customer_id': customerId,
+          'quantity': quantity,
+          'notes': _emptyAsNull(notes),
+        },
+      );
     });
   }
 
@@ -243,6 +323,7 @@ class CustomerDataService {
         'phone': customer['phone'],
         'email': customer['email'],
         'role': customer['role'],
+        'auth_user_id': customer['auth_user_id'],
         'address': customer['address'],
         'created_at': _asString(customer['created_at']),
         'updated_at': _asString(customer['updated_at']),
@@ -250,6 +331,10 @@ class CustomerDataService {
       'balance': _balanceJson(_map(json['balance'])),
       'recent_transactions': _list(transactions).map(_transactionJson).toList(),
       'recent_payments': _list(payments).map(_paymentJson).toList(),
+      'security_balance': _asNum(json['security_balance']),
+      'bottles': _map(json['bottles'] ?? const {}),
+      'security_history': _list(json['security_history']).map(_map).toList(),
+      'bottle_history': _list(json['bottle_history']).map(_map).toList(),
     };
   }
 
@@ -271,7 +356,8 @@ class CustomerDataService {
     final row = _map(item);
     return {
       'id': _asInt(row['id']),
-      'transaction_id': row['transaction_id'] == null ? null : _asInt(row['transaction_id']),
+      'transaction_id':
+          row['transaction_id'] == null ? null : _asInt(row['transaction_id']),
       'amount': _asNum(row['amount']),
       'payment_method': row['payment_method'],
       'notes': row['notes'],
@@ -299,8 +385,10 @@ class CustomerDataService {
     if (code == 'P0002' || message == 'Customer not found') {
       return ApiException(404, 'Customer not found');
     }
-    if (code == '42501' || message.toLowerCase().contains('row-level security')) {
-      return ApiException(403, 'You do not have permission to perform this action');
+    if (code == '42501' ||
+        message.toLowerCase().contains('row-level security')) {
+      return ApiException(
+          403, 'You do not have permission to perform this action');
     }
     if (message == 'You do not have permission to perform this action') {
       return ApiException(403, message);
@@ -339,6 +427,9 @@ class CustomerDataService {
   }
 
   num _asNum(dynamic value) {
+    if (value == null) {
+      return 0;
+    }
     if (value is num) {
       return value;
     }
@@ -350,5 +441,10 @@ class CustomerDataService {
       return null;
     }
     return value is String ? value : value.toString();
+  }
+
+  String? _emptyAsNull(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 }

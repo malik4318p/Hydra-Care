@@ -75,7 +75,7 @@ class _PurifyAppState extends State<PurifyApp> {
     }
 
     return MaterialApp(
-      title: 'HydraCare',
+      title: 'HydraCure',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

@@ -3,14 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/utils/format.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../models/customer.dart';
+import '../../../models/sales_metric.dart';
 import '../../../services/admin_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../widgets/search_field.dart';
+import '../../../widgets/brand_mark.dart';
 import 'customers_screen.dart';
 import 'payments_screen.dart';
 import 'products_screen.dart';
+import 'security_screen.dart';
 import 'transactions_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
@@ -37,6 +41,35 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   bool _loading = false;
   bool _searched = false; // true once user has typed something
   String? _error;
+  List<SalesMetric> _todaySales = [];
+  bool _salesLoading = true;
+  String? _salesError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTodaySales();
+  }
+
+  Future<void> _loadTodaySales() async {
+    setState(() {
+      _salesLoading = true;
+      _salesError = null;
+    });
+    try {
+      final sales = await widget.adminService.listTodaySalesByProduct();
+      if (!mounted) return;
+      setState(() => _todaySales = sales);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _salesError = error.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _salesError = 'Could not load today\'s sales.');
+    } finally {
+      if (mounted) setState(() => _salesLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -119,10 +152,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            Icon(Icons.water_drop_outlined, color: colorScheme.primary, size: 22),
+            const BrandMark(size: 28),
             const SizedBox(width: 8),
             Text(
-              'HydraCare',
+              'HydraCure',
               style: textTheme.titleLarge?.copyWith(
                 color: colorScheme.primary,
                 fontWeight: FontWeight.w700,
@@ -171,6 +204,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ),
 
+          _TodaySalesCard(
+            sales: _todaySales,
+            loading: _salesLoading,
+            error: _salesError,
+            onRetry: _loadTodaySales,
+          ),
+
           const SizedBox(height: 8),
 
           // ── Results area ─────────────────────────────────────────────────
@@ -198,7 +238,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               const SizedBox(height: 12),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              OutlinedButton(onPressed: _search, child: const Text('Try again')),
+              OutlinedButton(
+                  onPressed: _search, child: const Text('Try again')),
             ],
           ),
         ),
@@ -267,6 +308,169 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           onTap: () => _openCustomer(customer),
         );
       },
+    );
+  }
+}
+
+class _TodaySalesCard extends StatelessWidget {
+  const _TodaySalesCard({
+    required this.sales,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final List<SalesMetric> sales;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final soldProducts = sales
+        .where((item) => item.quantity > 0 && item.totalAmount > 0)
+        .toList(growable: false);
+    final total =
+        soldProducts.fold<num>(0, (sum, item) => sum + item.totalAmount);
+    final units = soldProducts.fold<int>(0, (sum, item) => sum + item.quantity);
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 360),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          children: [
+            Card(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Today\'s sales · Pakistan',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        if (error != null)
+                          IconButton(
+                            onPressed: onRetry,
+                            icon: const Icon(Icons.refresh),
+                          ),
+                      ],
+                    ),
+                    if (loading)
+                      const LinearProgressIndicator()
+                    else ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SalesSummaryMetric(
+                              label: 'Total sales',
+                              value: formatMoney(total),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _SalesSummaryMetric(
+                              label: 'Total units',
+                              value: '$units',
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ] else if (soldProducts.isEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('No sales recorded today.'),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (!loading && error == null)
+              ...soldProducts.map(
+                (item) => _ProductSalesCard(metric: item),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SalesSummaryMetric extends StatelessWidget {
+  const _SalesSummaryMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 2),
+        Text(value, style: Theme.of(context).textTheme.titleLarge),
+      ],
+    );
+  }
+}
+
+class _ProductSalesCard extends StatelessWidget {
+  const _ProductSalesCard({required this.metric});
+
+  final SalesMetric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                metric.productName,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SalesSummaryMetric(
+                      label: 'Quantity sold',
+                      value: '${metric.quantity}',
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _SalesSummaryMetric(
+                      label: 'Sales amount',
+                      value: formatMoney(metric.totalAmount),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -404,10 +608,7 @@ class _AppDrawer extends StatelessWidget {
                   CircleAvatar(
                     radius: 24,
                     backgroundColor: colorScheme.primaryContainer,
-                    child: Icon(
-                      Icons.water_drop_outlined,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
+                    child: const BrandMark(size: 40),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -415,7 +616,7 @@ class _AppDrawer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'HydraCare',
+                          'HydraCure',
                           style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: colorScheme.primary,
@@ -444,22 +645,32 @@ class _AppDrawer extends StatelessWidget {
             _DrawerItem(
               icon: Icons.people_outline,
               label: 'Customers',
-              onTap: () => onNavigate(CustomersScreen(adminService: adminService)),
+              onTap: () =>
+                  onNavigate(CustomersScreen(adminService: adminService)),
             ),
             _DrawerItem(
               icon: Icons.inventory_2_outlined,
               label: 'Products',
-              onTap: () => onNavigate(ProductsScreen(adminService: adminService)),
+              onTap: () =>
+                  onNavigate(ProductsScreen(adminService: adminService)),
             ),
             _DrawerItem(
               icon: Icons.receipt_long_outlined,
               label: 'Transactions',
-              onTap: () => onNavigate(TransactionsScreen(adminService: adminService)),
+              onTap: () =>
+                  onNavigate(TransactionsScreen(adminService: adminService)),
             ),
             _DrawerItem(
               icon: Icons.payments_outlined,
               label: 'Payments',
-              onTap: () => onNavigate(PaymentsScreen(adminService: adminService)),
+              onTap: () =>
+                  onNavigate(PaymentsScreen(adminService: adminService)),
+            ),
+            _DrawerItem(
+              icon: Icons.shield_outlined,
+              label: 'Security',
+              onTap: () =>
+                  onNavigate(SecurityScreen(adminService: adminService)),
             ),
 
             const Spacer(),
@@ -474,8 +685,11 @@ class _AppDrawer extends StatelessWidget {
               builder: (context, _) {
                 final isDark = themeController.isDark;
                 return _DrawerItem(
-                  icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                  label: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+                  icon: isDark
+                      ? Icons.light_mode_outlined
+                      : Icons.dark_mode_outlined,
+                  label:
+                      isDark ? 'Switch to light mode' : 'Switch to dark mode',
                   onTap: () => themeController.setDark(!isDark),
                 );
               },

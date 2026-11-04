@@ -1,7 +1,9 @@
 import '../models/customer.dart';
 import '../models/customer_balance.dart';
+import '../models/customer_summary.dart';
 import '../models/payment.dart';
 import '../models/product.dart';
+import '../models/sales_metric.dart';
 import '../models/transaction.dart';
 import 'customer_create_service.dart';
 import 'customer_data_service.dart';
@@ -9,6 +11,7 @@ import 'customer_email_service.dart';
 import 'payment_service.dart';
 import 'product_service.dart';
 import 'transaction_service.dart';
+import 'today_sales_service.dart';
 
 class AdminService {
   AdminService({
@@ -18,12 +21,15 @@ class AdminService {
     PaymentService? payments,
     CustomerEmailService? emails,
     CustomerCreateService? accounts,
+    CustomerDataService? customerData,
+    TodaySalesService? todaySales,
   })  : _products = products ?? ProductService(),
-        _customers = customers ?? CustomerDataService(),
+        _customers = customers ?? customerData ?? CustomerDataService(),
         _transactions = transactions ?? TransactionService(),
         _payments = payments ?? PaymentService(),
         _emails = emails ?? CustomerEmailService(),
-        _accounts = accounts ?? CustomerCreateService();
+        _accounts = accounts ?? CustomerCreateService(),
+        _todaySales = todaySales ?? TodaySalesService();
 
   final ProductService _products;
   final CustomerDataService _customers;
@@ -31,6 +37,7 @@ class AdminService {
   final PaymentService _payments;
   final CustomerEmailService _emails;
   final CustomerCreateService _accounts;
+  final TodaySalesService _todaySales;
 
   Future<List<Customer>> listCustomers({bool? activeOnly, String? search}) {
     return _customers.listCustomers(activeOnly: activeOnly, search: search);
@@ -39,6 +46,36 @@ class AdminService {
   Future<CustomerBalance> getCustomerBalance(int id) {
     return _customers.getCustomerBalance(id);
   }
+
+  Future<CustomerSummary> getCustomerSummary(int id) =>
+      _customers.getCustomerSummary(id);
+
+  Future<void> collectSecurity(
+      {required int customerId, required num amount, String? notes}) {
+    return _customers.collectSecurity(
+        customerId: customerId, amount: amount, notes: notes);
+  }
+
+  Future<void> refundSecurity(
+      {required int customerId, required num amount, String? notes}) {
+    return _customers.refundSecurity(
+        customerId: customerId, amount: amount, notes: notes);
+  }
+
+  Future<void> issueBottles(
+      {required int customerId, required int quantity, String? notes}) {
+    return _customers.issueBottles(
+        customerId: customerId, quantity: quantity, notes: notes);
+  }
+
+  Future<void> returnBottles(
+      {required int customerId, required int quantity, String? notes}) {
+    return _customers.returnBottles(
+        customerId: customerId, quantity: quantity, notes: notes);
+  }
+
+  Future<List<SalesMetric>> listTodaySalesByProduct() =>
+      _todaySales.listTodaySalesByProduct();
 
   Future<void> archiveCustomer(int id) => _customers.archiveCustomer(id);
 
@@ -103,7 +140,8 @@ class AdminService {
     );
   }
 
-  Future<List<Transaction>> listTransactions() => _transactions.listTransactions();
+  Future<List<Transaction>> listTransactions() =>
+      _transactions.listTransactions();
 
   Future<Transaction> createTransaction({
     required int customerId,

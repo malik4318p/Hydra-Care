@@ -6,6 +6,10 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/utils/format.dart';
 import '../../../models/customer.dart';
 import '../../../models/customer_balance.dart';
+import '../../../models/customer_ledger.dart';
+import '../../../models/customer_summary.dart';
+import '../../../models/payment.dart';
+import '../../../models/transaction.dart';
 import '../../../services/admin_service.dart';
 import '../../../widgets/app_button.dart';
 import '../../../widgets/app_text_field.dart';
@@ -18,6 +22,7 @@ class CustomersScreen extends StatefulWidget {
   const CustomersScreen({
     super.key,
     required this.adminService,
+
     /// When supplied the edit form for this customer is opened immediately
     /// after the list has loaded, letting the search dashboard tap straight
     /// through to a specific customer without re-querying.
@@ -84,12 +89,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
         search: search.isEmpty ? null : search,
       );
       final balances = await Future.wait(
-        customers.map((customer) => widget.adminService.getCustomerBalance(customer.id)),
+        customers.map(
+            (customer) => widget.adminService.getCustomerBalance(customer.id)),
       );
       if (!mounted) return;
       setState(() {
         _customers = customers;
-        _balances = {for (final balance in balances) balance.customerId: balance};
+        _balances = {
+          for (final balance in balances) balance.customerId: balance
+        };
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -107,7 +115,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Future<void> _openForm({Customer? customer}) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => _CreateCustomerScreen(
+        builder: (_) => CustomerDetailsScreen(
           adminService: widget.adminService,
           customer: customer,
         ),
@@ -115,7 +123,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
     );
     if (saved == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(customer == null ? 'Customer added.' : 'Customer updated.')),
+        SnackBar(
+            content: Text(
+                customer == null ? 'Customer added.' : 'Customer updated.')),
       );
       await _load();
     }
@@ -157,7 +167,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     ButtonSegment(value: true, label: Text('Archived')),
                   ],
                   selected: {_showArchived},
-                  onSelectionChanged: (selection) => _onFilterChanged(selection.first),
+                  onSelectionChanged: (selection) =>
+                      _onFilterChanged(selection.first),
                 ),
               ],
             ),
@@ -177,9 +188,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                 ],
                               )
                             : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 0, 16, 16),
                                 itemCount: _customers.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
                                 itemBuilder: (context, index) {
                                   final customer = _customers[index];
                                   final balance = _balances[customer.id];
@@ -201,17 +214,23 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                       trailing: balance == null
                                           ? null
                                           : Column(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
                                               children: [
-                                                Text(formatMoney(balance.outstandingBalance)),
+                                                Text(formatMoney(balance
+                                                    .outstandingBalance)),
                                                 Text(
                                                   'Due',
-                                                  style: Theme.of(context).textTheme.bodySmall,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall,
                                                 ),
                                               ],
                                             ),
-                                      onTap: () => _openForm(customer: customer),
+                                      onTap: () =>
+                                          _openForm(customer: customer),
                                     ),
                                   );
                                 },
@@ -246,17 +265,76 @@ class _ArchivedBadge extends StatelessWidget {
   }
 }
 
-class _CreateCustomerScreen extends StatefulWidget {
-  const _CreateCustomerScreen({required this.adminService, this.customer});
+class _LedgerValueRow extends StatelessWidget {
+  const _LedgerValueRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [Text(label), Text(value)],
+      ),
+    );
+  }
+}
+
+class _HistoryCard<T> extends StatelessWidget {
+  const _HistoryCard({
+    required this.title,
+    required this.emptyMessage,
+    required this.items,
+    required this.itemBuilder,
+  });
+
+  final String title;
+  final String emptyMessage;
+  final List<T> items;
+  final Widget Function(T item) itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            if (items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(emptyMessage),
+              )
+            else
+              ...items.map(itemBuilder),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Reusable customer detail route used by the customer list and security flow.
+class CustomerDetailsScreen extends StatefulWidget {
+  const CustomerDetailsScreen({
+    super.key,
+    required this.adminService,
+    this.customer,
+  });
 
   final AdminService adminService;
   final Customer? customer;
 
   @override
-  State<_CreateCustomerScreen> createState() => _CreateCustomerScreenState();
+  State<CustomerDetailsScreen> createState() => _CreateCustomerScreenState();
 }
 
-class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
+class _CreateCustomerScreenState extends State<CustomerDetailsScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
@@ -265,6 +343,7 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
   bool _archiving = false;
   String? _error;
   CustomerBalance? _balance;
+  CustomerSummary? _summary;
   bool _balanceLoading = false;
   String? _balanceError;
 
@@ -280,17 +359,20 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
     _emailController.text = customer.email ?? '';
     _addressController.text = customer.address ?? '';
     _balanceLoading = true;
-    _loadBalance();
+    _loadDetails();
   }
 
-  Future<void> _loadBalance() async {
+  Future<void> _loadDetails() async {
     final customer = widget.customer;
     if (customer == null) return;
 
     try {
-      final balance = await widget.adminService.getCustomerBalance(customer.id);
+      final summary = await widget.adminService.getCustomerSummary(customer.id);
       if (!mounted) return;
-      setState(() => _balance = balance);
+      setState(() {
+        _summary = summary;
+        _balance = summary.balance;
+      });
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _balanceError = error.message);
@@ -302,6 +384,263 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
         setState(() => _balanceLoading = false);
       }
     }
+  }
+
+  Future<Map<String, String>?> _ledgerPrompt({
+    required String title,
+    required String valueLabel,
+  }) {
+    final valueController = TextEditingController();
+    final notesController = TextEditingController();
+    return showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: valueController,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: valueLabel),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesController,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop({
+              'value': valueController.text.trim(),
+              'notes': notesController.text.trim(),
+            }),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    ).whenComplete(() {
+      valueController.dispose();
+      notesController.dispose();
+    });
+  }
+
+  Future<void> _performLedgerAction(Future<void> Function() action) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await action();
+      await _loadDetails();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Could not update the customer ledger.');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _collectSecurity() async {
+    final input = await _ledgerPrompt(
+      title: 'Collect security',
+      valueLabel: 'Amount',
+    );
+    if (input == null) return;
+    final amount = num.tryParse(input['value'] ?? '');
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter a security amount greater than 0.');
+      return;
+    }
+    await _performLedgerAction(() => widget.adminService.collectSecurity(
+          customerId: widget.customer!.id,
+          amount: amount,
+          notes: input['notes'],
+        ));
+  }
+
+  Future<void> _refundSecurity() async {
+    final input = await _ledgerPrompt(
+      title: 'Refund security',
+      valueLabel: 'Amount',
+    );
+    if (input == null) return;
+    final amount = num.tryParse(input['value'] ?? '');
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter a refund amount greater than 0.');
+      return;
+    }
+    await _performLedgerAction(() => widget.adminService.refundSecurity(
+          customerId: widget.customer!.id,
+          amount: amount,
+          notes: input['notes'],
+        ));
+  }
+
+  Future<void> _issueBottles() async {
+    final input = await _ledgerPrompt(
+      title: 'Issue 19L bottles',
+      valueLabel: 'Quantity',
+    );
+    if (input == null) return;
+    final quantity = int.tryParse(input['value'] ?? '');
+    if (quantity == null || quantity <= 0) {
+      setState(() => _error = 'Enter a bottle quantity greater than 0.');
+      return;
+    }
+    await _performLedgerAction(() => widget.adminService.issueBottles(
+          customerId: widget.customer!.id,
+          quantity: quantity,
+          notes: input['notes'],
+        ));
+  }
+
+  Future<void> _returnBottles() async {
+    final input = await _ledgerPrompt(
+      title: 'Return 19L bottles',
+      valueLabel: 'Quantity',
+    );
+    if (input == null) return;
+    final quantity = int.tryParse(input['value'] ?? '');
+    if (quantity == null || quantity <= 0) {
+      setState(() => _error = 'Enter a bottle quantity greater than 0.');
+      return;
+    }
+    await _performLedgerAction(() => widget.adminService.returnBottles(
+          customerId: widget.customer!.id,
+          quantity: quantity,
+          notes: input['notes'],
+        ));
+  }
+
+  Widget _buildLedgerDetails() {
+    final summary = _summary;
+    if (summary == null) return const SizedBox.shrink();
+    final bottles = summary.bottleBalance;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Customer ledger', style: textTheme.titleMedium),
+                const SizedBox(height: 12),
+                _LedgerValueRow(
+                  label: 'Security balance',
+                  value: formatMoney(summary.securityBalance),
+                ),
+                _LedgerValueRow(
+                    label: '19L bottles issued', value: '${bottles.issued}'),
+                _LedgerValueRow(
+                    label: '19L bottles returned',
+                    value: '${bottles.returned}'),
+                _LedgerValueRow(
+                    label: '19L bottles outstanding',
+                    value: '${bottles.outstanding}'),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _collectSecurity,
+                      icon: const Icon(Icons.add_card_outlined),
+                      label: const Text('Collect security'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _refundSecurity,
+                      icon: const Icon(Icons.reply_outlined),
+                      label: const Text('Refund security'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _issueBottles,
+                      icon: const Icon(Icons.local_drink_outlined),
+                      label: const Text('Issue 19L bottles'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _returnBottles,
+                      icon: const Icon(Icons.assignment_return_outlined),
+                      label: const Text('Return 19L bottles'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        _HistoryCard<CustomerSecurityActivity>(
+          title: 'Security activity',
+          emptyMessage: 'No security activity yet.',
+          items: summary.securityHistory,
+          itemBuilder: (item) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(item.entryType == 'collect'
+                ? 'Security collected'
+                : 'Security refunded'),
+            subtitle: Text(
+                '${formatDate(item.createdAt)}${item.notes?.isNotEmpty == true ? ' · ${item.notes}' : ''}'),
+            trailing: Text(formatMoney(item.amount)),
+          ),
+        ),
+        _HistoryCard<CustomerBottleActivity>(
+          title: '19L bottle activity',
+          emptyMessage: 'No 19L bottle activity yet.',
+          items: summary.bottleHistory,
+          itemBuilder: (item) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(item.entryType == 'issue'
+                ? 'Bottles issued'
+                : 'Bottles returned'),
+            subtitle: Text(
+                '${formatDate(item.createdAt)}${item.notes?.isNotEmpty == true ? ' · ${item.notes}' : ''}'),
+            trailing: Text('${item.quantity}'),
+          ),
+        ),
+        _HistoryCard<Transaction>(
+          title: 'Transaction history',
+          emptyMessage: 'No transactions yet.',
+          items: summary.recentTransactions,
+          itemBuilder: (item) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(item.productName ?? 'Sale'),
+            subtitle: Text(
+                '${item.quantity} × ${formatMoney(item.unitPrice)} · ${formatDate(item.createdAt)}'),
+            trailing: Text(formatMoney(item.totalAmount)),
+          ),
+        ),
+        _HistoryCard<Payment>(
+          title: 'Payment history',
+          emptyMessage: 'No payments yet.',
+          items: summary.recentPayments,
+          itemBuilder: (item) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(item.paymentMethod),
+            subtitle: Text(
+                '${formatDate(item.createdAt)}${item.notes?.isNotEmpty == true ? ' · ${item.notes}' : ''}'),
+            trailing: Text(formatMoney(item.amount)),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -426,7 +765,9 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
       setState(() => _error = error.message);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = _editing ? 'Could not update the customer.' : 'Could not add the customer.');
+      setState(() => _error = _editing
+          ? 'Could not update the customer.'
+          : 'Could not add the customer.');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -465,8 +806,10 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
                         const SizedBox(height: 12),
-                        Text('Total charges: ${formatMoney(_balance!.totalCharges)}'),
-                        Text('Total payments: ${formatMoney(_balance!.totalPayments)}'),
+                        Text(
+                            'Total charges: ${formatMoney(_balance!.totalCharges)}'),
+                        Text(
+                            'Total payments: ${formatMoney(_balance!.totalPayments)}'),
                       ],
                     ),
                   ),
@@ -476,11 +819,13 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
                   padding: const EdgeInsets.only(bottom: 16),
                   child: Text(
                     _balanceError!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ),
               const SizedBox(height: 16),
             ],
+            if (_editing) _buildLedgerDetails(),
             AppTextField(controller: _nameController, label: 'Name'),
             const SizedBox(height: 16),
             AppTextField(
@@ -495,7 +840,8 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 16),
-            AppTextField(controller: _addressController, label: 'Address (optional)'),
+            AppTextField(
+                controller: _addressController, label: 'Address (optional)'),
             if (_editing) ...[
               const SizedBox(height: 16),
               SizedBox(
@@ -510,14 +856,17 @@ class _CreateCustomerScreenState extends State<_CreateCustomerScreen> {
                         : Icons.unarchive_outlined,
                   ),
                   label: Text(
-                    widget.customer!.active ? 'Archive customer' : 'Restore customer',
+                    widget.customer!.active
+                        ? 'Archive customer'
+                        : 'Restore customer',
                   ),
                 ),
               ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 16),
-              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              Text(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
             const SizedBox(height: 24),
             AppButton(

@@ -5,6 +5,7 @@ import '../../../core/theme/theme_controller.dart';
 import '../../../services/auth_service.dart';
 import '../../../widgets/app_button.dart';
 import '../../../widgets/app_text_field.dart';
+import '../../../widgets/brand_mark.dart';
 import '../../../widgets/theme_toggle_button.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -79,18 +80,10 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                    child: Icon(
-                      Icons.water_drop_outlined,
-                      size: 32,
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                  ),
+                  const BrandMark(size: 64),
                   const SizedBox(height: 16),
                   Text(
-                    'HydraCare',
+                    'HydraCure',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
@@ -116,7 +109,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     Text(
                       _error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
                     ),
                   ],
                   const SizedBox(height: 24),

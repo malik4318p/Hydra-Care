@@ -9,6 +9,7 @@ import '../../../services/customer_service.dart';
 import '../../../widgets/empty_view.dart';
 import '../../../widgets/error_view.dart';
 import '../../../widgets/loading_view.dart';
+import '../../../widgets/brand_mark.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({
@@ -76,10 +77,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            Icon(Icons.water_drop_outlined, color: colorScheme.primary, size: 22),
+            const BrandMark(size: 28),
             const SizedBox(width: 8),
             Text(
-              'HydraCare',
+              'HydraCure',
               style: textTheme.titleLarge?.copyWith(
                 color: colorScheme.primary,
                 fontWeight: FontWeight.w700,
@@ -99,7 +100,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           : _error != null
               ? ErrorView(message: _error!, onRetry: _load)
               : _summary == null
-                  ? ErrorView(message: 'No account data returned.', onRetry: _load)
+                  ? ErrorView(
+                      message: 'No account data returned.', onRetry: _load)
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView(
@@ -109,7 +111,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                           const SizedBox(height: 16),
                           _BalanceCard(summary: _summary!),
                           const SizedBox(height: 24),
-                          Text('Recent transactions', style: textTheme.titleMedium),
+                          Text('Recent transactions',
+                              style: textTheme.titleMedium),
                           if (_summary!.recentTransactions.isEmpty)
                             const EmptyView(message: 'No transactions yet.')
                           else
@@ -162,9 +165,11 @@ class _BalanceCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.account_balance_wallet_outlined, color: colorScheme.primary),
+                Icon(Icons.account_balance_wallet_outlined,
+                    color: colorScheme.primary),
                 const SizedBox(width: 8),
-                Text('Outstanding balance', style: Theme.of(context).textTheme.titleMedium),
+                Text('Outstanding balance',
+                    style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: 8),
@@ -231,10 +236,7 @@ class _CustomerDrawer extends StatelessWidget {
                   CircleAvatar(
                     radius: 24,
                     backgroundColor: colorScheme.primaryContainer,
-                    child: Icon(
-                      Icons.water_drop_outlined,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
+                    child: const BrandMark(size: 40),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -242,7 +244,7 @@ class _CustomerDrawer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'HydraCare',
+                          'HydraCure',
                           style: textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: colorScheme.primary,
@@ -277,7 +279,8 @@ class _CustomerDrawer extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
               visualDensity: VisualDensity.compact,
             ),
 
@@ -294,7 +297,9 @@ class _CustomerDrawer extends StatelessWidget {
                 final isDark = themeController.isDark;
                 return ListTile(
                   leading: Icon(
-                    isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                    isDark
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
                     color: colorScheme.onSurfaceVariant,
                   ),
                   title: Text(
@@ -302,7 +307,8 @@ class _CustomerDrawer extends StatelessWidget {
                     style: textTheme.bodyLarge,
                   ),
                   onTap: () => themeController.setDark(!isDark),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
                   visualDensity: VisualDensity.compact,
                 );
               },
@@ -316,7 +322,8 @@ class _CustomerDrawer extends StatelessWidget {
                 style: textTheme.bodyLarge?.copyWith(color: colorScheme.error),
               ),
               onTap: authService.logout,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
               visualDensity: VisualDensity.compact,
             ),
             const SizedBox(height: 8),

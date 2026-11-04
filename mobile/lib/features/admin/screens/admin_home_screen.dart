@@ -12,6 +12,7 @@ import '../../../services/auth_service.dart';
 import '../../../widgets/search_field.dart';
 import '../../../widgets/brand_mark.dart';
 import 'customers_screen.dart';
+import 'orders_screen.dart';
 import 'payments_screen.dart';
 import 'products_screen.dart';
 import 'security_screen.dart';
@@ -137,9 +138,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  void _navigate(Widget screen) {
+  Future<void> _navigate(Widget screen) async {
     Navigator.of(context).pop(); // close drawer
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+
+    // Today's Sales reads straight from `transactions`, and only these
+    // destinations can add a row there: Transactions directly, or an order
+    // screen if the admin delivers a pending order from within it (at any
+    // navigation depth — this still awaits until we're back here). Every
+    // other drawer destination (Customers, Products, Payments, Security)
+    // cannot affect it, so skip the reload for those.
+    final affectsTodaySales = screen is TransactionsScreen ||
+        screen is TotalOrdersScreen ||
+        screen is DeliveredOrdersScreen ||
+        screen is UndeliveredOrdersScreen;
+    if (affectsTodaySales && mounted) {
+      await _loadTodaySales();
+    }
   }
 
   @override
@@ -665,6 +680,24 @@ class _AppDrawer extends StatelessWidget {
               label: 'Payments',
               onTap: () =>
                   onNavigate(PaymentsScreen(adminService: adminService)),
+            ),
+            _DrawerItem(
+              icon: Icons.list_alt_outlined,
+              label: 'Total Orders',
+              onTap: () =>
+                  onNavigate(TotalOrdersScreen(adminService: adminService)),
+            ),
+            _DrawerItem(
+              icon: Icons.local_shipping_outlined,
+              label: 'Delivered Orders',
+              onTap: () => onNavigate(
+                  DeliveredOrdersScreen(adminService: adminService)),
+            ),
+            _DrawerItem(
+              icon: Icons.pending_actions_outlined,
+              label: 'Undelivered Orders',
+              onTap: () => onNavigate(
+                  UndeliveredOrdersScreen(adminService: adminService)),
             ),
             _DrawerItem(
               icon: Icons.shield_outlined,

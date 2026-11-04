@@ -1,6 +1,7 @@
 import '../models/customer.dart';
 import '../models/customer_balance.dart';
 import '../models/customer_summary.dart';
+import '../models/order.dart';
 import '../models/payment.dart';
 import '../models/product.dart';
 import '../models/sales_metric.dart';
@@ -8,6 +9,7 @@ import '../models/transaction.dart';
 import 'customer_create_service.dart';
 import 'customer_data_service.dart';
 import 'customer_email_service.dart';
+import 'order_service.dart';
 import 'payment_service.dart';
 import 'product_service.dart';
 import 'transaction_service.dart';
@@ -23,13 +25,15 @@ class AdminService {
     CustomerCreateService? accounts,
     CustomerDataService? customerData,
     TodaySalesService? todaySales,
+    OrderService? orders,
   })  : _products = products ?? ProductService(),
         _customers = customers ?? customerData ?? CustomerDataService(),
         _transactions = transactions ?? TransactionService(),
         _payments = payments ?? PaymentService(),
         _emails = emails ?? CustomerEmailService(),
         _accounts = accounts ?? CustomerCreateService(),
-        _todaySales = todaySales ?? TodaySalesService();
+        _todaySales = todaySales ?? TodaySalesService(),
+        _orders = orders ?? OrderService();
 
   final ProductService _products;
   final CustomerDataService _customers;
@@ -38,6 +42,7 @@ class AdminService {
   final CustomerEmailService _emails;
   final CustomerCreateService _accounts;
   final TodaySalesService _todaySales;
+  final OrderService _orders;
 
   Future<List<Customer>> listCustomers({bool? activeOnly, String? search}) {
     return _customers.listCustomers(activeOnly: activeOnly, search: search);
@@ -208,4 +213,38 @@ class AdminService {
       notes: notes,
     );
   }
+
+  Future<List<Order>> listOrdersCreatedBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) =>
+      _orders.listOrdersCreatedBetween(startUtc, endUtc);
+
+  Future<List<Order>> listOrdersDeliveredBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) =>
+      _orders.listOrdersDeliveredBetween(startUtc, endUtc);
+
+  Future<List<Order>> listPendingOrdersCreatedBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) =>
+      _orders.listPendingOrdersCreatedBetween(startUtc, endUtc);
+
+  Future<Order> getOrder(int id) => _orders.getOrder(id);
+
+  Future<Order> createOrder({
+    required int customerId,
+    required List<OrderItemInput> items,
+    String? notes,
+  }) {
+    return _orders.createOrder(
+      customerId: customerId,
+      items: items,
+      notes: notes,
+    );
+  }
+
+  Future<Order> deliverOrder(int orderId) => _orders.deliverOrder(orderId);
 }
